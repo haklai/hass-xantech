@@ -99,6 +99,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: XantechConfigEntry) -> b
         hass,
         amp,
         amp_name,
+        amp_type,
         zone_ids,
         scan_interval,
     )
