@@ -16,9 +16,13 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
+    AMP_TYPE_SONANCE6,
+    CONF_AMP_TYPE,
     CONF_ZONES,
     DOMAIN,
     MAX_VOLUME,
+    MAX_VOLUME_SONANCE6,
+    MIN_VOLUME_SONANCE6,
 )
 from .coordinator import XantechCoordinator
 
@@ -121,6 +125,20 @@ class ZoneMediaPlayer(CoordinatorEntity[XantechCoordinator], MediaPlayerEntity):
         self._entry = entry
 
     @property
+    def _max_volume(self) -> int:
+        """Return maximum volume for this amp type."""
+        if self._entry.data.get(CONF_AMP_TYPE) == AMP_TYPE_SONANCE6:
+            return MAX_VOLUME_SONANCE6
+        return MAX_VOLUME
+
+    @property
+    def _min_volume(self) -> int:
+        """Return minimum allowed volume for this amp type."""
+        if self._entry.data.get(CONF_AMP_TYPE) == AMP_TYPE_SONANCE6:
+            return MIN_VOLUME_SONANCE6
+        return 0
+
+    @property
     def _zone_status(self) -> dict[str, Any]:
         """Get current zone status, preferring optimistic state for instant UI.
 
@@ -173,7 +191,7 @@ class ZoneMediaPlayer(CoordinatorEntity[XantechCoordinator], MediaPlayerEntity):
         volume = self._zone_status.get('volume')
         if volume is None:
             return None
-        return volume / MAX_VOLUME
+        return volume / self._max_volume
 
     @property
     def is_volume_muted(self) -> bool:
@@ -237,7 +255,7 @@ class ZoneMediaPlayer(CoordinatorEntity[XantechCoordinator], MediaPlayerEntity):
 
     async def async_set_volume_level(self, volume: float) -> None:
         """Set volume level, range 0-1.0."""
-        amp_volume = int(volume * MAX_VOLUME)
+        amp_volume = max(self._min_volume, int(volume * self._max_volume))
         LOG.debug('Setting zone %d volume to %d', self._zone_id, amp_volume)
         self._set_optimistic(volume=amp_volume)
         try:
@@ -250,7 +268,7 @@ class ZoneMediaPlayer(CoordinatorEntity[XantechCoordinator], MediaPlayerEntity):
         volume = self._zone_status.get('volume')
         if volume is None:
             return
-        new_volume = min(volume + 1, MAX_VOLUME)
+        new_volume = min(volume + 1, self._max_volume)
         self._set_optimistic(volume=new_volume)
         try:
             await self.coordinator.async_set_zone_volume(self._zone_id, new_volume)
@@ -262,7 +280,7 @@ class ZoneMediaPlayer(CoordinatorEntity[XantechCoordinator], MediaPlayerEntity):
         volume = self._zone_status.get('volume')
         if volume is None:
             return
-        new_volume = max(volume - 1, 0)
+        new_volume = max(volume - 1, self._min_volume)
         self._set_optimistic(volume=new_volume)
         try:
             await self.coordinator.async_set_zone_volume(self._zone_id, new_volume)
