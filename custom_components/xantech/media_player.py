@@ -233,9 +233,16 @@ class ZoneMediaPlayer(CoordinatorEntity[XantechCoordinator], MediaPlayerEntity):
     async def async_turn_on(self) -> None:
         """Turn the media player on."""
         LOG.debug('Turning on zone %d', self._zone_id)
+        # the amp powers a zone on at its own turn-on level, which can differ from
+        # the last volume shown in HA; re-send that volume so the two stay in sync
+        volume = self._zone_status.get('volume')
         self._set_optimistic(power=True)
         try:
             await self.coordinator.async_set_zone_power(self._zone_id, True)
+            if volume is not None:
+                volume = max(self._min_volume, min(volume, self._max_volume))
+                LOG.debug('Restoring zone %d volume to %d', self._zone_id, volume)
+                await self.coordinator.async_restore_zone_volume(self._zone_id, volume)
         finally:
             self._command_complete()
 

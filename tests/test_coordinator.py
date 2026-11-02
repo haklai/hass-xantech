@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.core import HomeAssistant
 import pytest
 
-from custom_components.xantech.coordinator import XantechCoordinator
+from custom_components.xantech.coordinator import (
+    POWER_ON_VOLUME_RETRY_DELAYS,
+    XantechCoordinator,
+)
 
 
 @pytest.fixture
@@ -85,6 +88,54 @@ async def test_coordinator_set_zone_volume(
     await coordinator.async_set_zone_volume(11, 25)
 
     mock_amp.set_volume.assert_called_once_with(11, 25)
+
+
+async def test_coordinator_restore_zone_volume_confirmed(
+    coordinator: XantechCoordinator,
+    mock_amp: MagicMock,
+) -> None:
+    """Test volume restore stops once the amp reports the requested volume."""
+    with patch(
+        'custom_components.xantech.coordinator.asyncio.sleep', new_callable=AsyncMock
+    ):
+        await coordinator.async_restore_zone_volume(11, 20)
+
+    mock_amp.set_volume.assert_called_once_with(11, 20)
+
+
+async def test_coordinator_restore_zone_volume_retries(
+    coordinator: XantechCoordinator,
+    mock_amp: MagicMock,
+) -> None:
+    """Test volume restore retries while the amp ignores the command."""
+    mock_amp.zone_status = AsyncMock(
+        side_effect=[{'volume': 5}, {'volume': 5}, {'volume': 25}]
+    )
+    with patch(
+        'custom_components.xantech.coordinator.asyncio.sleep', new_callable=AsyncMock
+    ) as mock_sleep:
+        await coordinator.async_restore_zone_volume(11, 25)
+
+    assert mock_amp.set_volume.call_count == 3
+    assert [c.args[0] for c in mock_sleep.call_args_list] == list(
+        POWER_ON_VOLUME_RETRY_DELAYS
+    )
+
+
+async def test_coordinator_restore_zone_volume_gives_up(
+    coordinator: XantechCoordinator,
+    mock_amp: MagicMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Test volume restore warns after every attempt is ignored."""
+    mock_amp.zone_status = AsyncMock(return_value={'volume': 5})
+    with patch(
+        'custom_components.xantech.coordinator.asyncio.sleep', new_callable=AsyncMock
+    ):
+        await coordinator.async_restore_zone_volume(11, 25)
+
+    assert mock_amp.set_volume.call_count == len(POWER_ON_VOLUME_RETRY_DELAYS)
+    assert 'did not keep volume 25' in caplog.text
 
 
 async def test_coordinator_set_zone_mute(

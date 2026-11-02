@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import asyncio
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -15,6 +16,9 @@ if TYPE_CHECKING:
     from pyxantech import AmpControlBase
 
 LOG = logging.getLogger(__name__)
+
+# seconds to wait before each attempt to set volume after a zone powers on
+POWER_ON_VOLUME_RETRY_DELAYS = (0.5, 1.0, 2.0)
 
 
 class XantechCoordinator(DataUpdateCoordinator[dict[int, dict[str, Any]]]):
@@ -152,6 +156,35 @@ class XantechCoordinator(DataUpdateCoordinator[dict[int, dict[str, Any]]]):
         except Exception:
             LOG.exception('Failed to set volume for zone %d', zone_id)
             raise
+
+    async def async_restore_zone_volume(self, zone_id: int, volume: int) -> None:
+        """Set a zone's volume right after power-on and confirm the amp kept it.
+
+        The amp ignores a volume command sent while a zone is still powering
+        up, so wait, set, read back, and retry with a longer wait if needed.
+        """
+        for attempt, delay in enumerate(POWER_ON_VOLUME_RETRY_DELAYS, start=1):
+            await asyncio.sleep(delay)
+            await self.async_set_zone_volume(zone_id, volume)
+            status = await self.amp.zone_status(zone_id)
+            actual = status.get('volume') if status else None
+            if actual == volume:
+                LOG.debug(
+                    'Zone %d volume %d confirmed on attempt %d (waited %.1fs)',
+                    zone_id,
+                    volume,
+                    attempt,
+                    delay,
+                )
+                return
+            LOG.debug(
+                'Zone %d volume is %s after setting %d on attempt %d',
+                zone_id,
+                actual,
+                volume,
+                attempt,
+            )
+        LOG.warning('Zone %d did not keep volume %d after power-on', zone_id, volume)
 
     async def async_set_zone_mute(self, zone_id: int, mute: bool) -> None:
         """Set mute state for a zone."""

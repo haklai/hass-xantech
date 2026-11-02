@@ -143,12 +143,37 @@ async def test_zone_player_turn_on(
     zone_player: ZoneMediaPlayer,
     coordinator: XantechCoordinator,
 ) -> None:
-    """Test turning zone on."""
-    with patch.object(
-        coordinator, 'async_set_zone_power', new_callable=AsyncMock
-    ) as mock_power:
+    """Test turning zone on restores the last known volume."""
+    with (
+        patch.object(
+            coordinator, 'async_set_zone_power', new_callable=AsyncMock
+        ) as mock_power,
+        patch.object(
+            coordinator, 'async_restore_zone_volume', new_callable=AsyncMock
+        ) as mock_restore,
+    ):
         await zone_player.async_turn_on()
         mock_power.assert_called_once_with(11, True)
+        mock_restore.assert_called_once_with(11, 20)
+
+
+async def test_zone_player_turn_on_without_known_volume(
+    zone_player: ZoneMediaPlayer,
+    coordinator: XantechCoordinator,
+) -> None:
+    """Test turning zone on skips the volume restore when volume is unknown."""
+    coordinator.data[11].pop('volume')
+    with (
+        patch.object(
+            coordinator, 'async_set_zone_power', new_callable=AsyncMock
+        ) as mock_power,
+        patch.object(
+            coordinator, 'async_restore_zone_volume', new_callable=AsyncMock
+        ) as mock_restore,
+    ):
+        await zone_player.async_turn_on()
+        mock_power.assert_called_once_with(11, True)
+        mock_restore.assert_not_called()
 
 
 async def test_zone_player_turn_off(
